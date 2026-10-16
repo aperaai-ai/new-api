@@ -20,6 +20,7 @@ import { useState, useEffect } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { DEFAULT_LOGO } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
@@ -83,6 +84,24 @@ export function PublicHeader(props: PublicHeaderProps) {
   const isAuthenticated = !!user
   const displaySiteName = customSiteName || systemName
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  let brandLogo = (
+    <HeaderLogo
+      src={systemLogo}
+      alt={displaySiteName}
+      loading={loading}
+      logoLoaded={logoLoaded}
+      className='h-full w-auto object-contain'
+    />
+  )
+  if (systemLogo === DEFAULT_LOGO) {
+    brandLogo = (
+      <img
+        src='/apera-wordmark.png'
+        alt={displaySiteName}
+        className='h-full w-auto rounded-md object-contain'
+      />
+    )
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -118,20 +137,14 @@ export function PublicHeader(props: PublicHeaderProps) {
             {/* Logo */}
             <Link
               to={homeUrl}
+              aria-label={displaySiteName}
               className='group flex shrink-0 items-center gap-2.5'
             >
-              <div className='flex h-8 w-44 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+              <div className='flex h-11 w-40 shrink-0 items-center justify-start transition-all duration-300 group-hover:scale-105'>
                 {loading ? (
                   <Skeleton className='size-full rounded-lg' />
-                ) : customLogo ? (
-                  customLogo
                 ) : (
-                  <HeaderLogo
-                    src={systemLogo}
-                    loading={loading}
-                    logoLoaded={logoLoaded}
-                    className='h-full w-auto object-contain'
-                  />
+                  customLogo || brandLogo
                 )}
               </div>
             </Link>

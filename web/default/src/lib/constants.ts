@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'BFC Gateway'
-export const DEFAULT_LOGO = '/logo.png'
+export const DEFAULT_SYSTEM_NAME = 'Apera AI'
+export const DEFAULT_LOGO = '/apera-icon.svg'
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

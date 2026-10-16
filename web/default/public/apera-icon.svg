@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img" aria-label="Apera AI">
+  <rect width="80" height="80" rx="12" fill="#f5f1e8"/>
+  <g fill="#000" transform="translate(0 -4)">
+    <path d="M39 28a23 23 0 1 0 0 46V62a11 11 0 1 1 0-22Z"/>
+    <circle cx="38" cy="51" r="7.5"/>
+    <path d="M42 14h25v60H54V39c0-7-5-12-12-12Z"/>
+  </g>
+</svg>
