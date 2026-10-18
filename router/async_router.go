@@ -26,6 +26,8 @@ func SetAsyncRouter(r *gin.Engine) {
 		}
 		c.Status(200)
 	})
+	r.GET("/api/model-queue/holds", middleware.RootAuth(), controller.ListQueueHolds)
+	r.POST("/api/model-queue/holds/:id/reconcile", middleware.RootAuth(), controller.ReconcileQueueHold)
 	r.GET("/api/async/tasks/reconciling", middleware.RootAuth(), controller.ListAsyncReconciliation)
 	r.POST("/api/async/tasks/:id/reconcile", middleware.RootAuth(), controller.ReconcileAsyncGeneration)
 	g := r.Group("/v1/3d", middleware.AsyncTokenAuth())

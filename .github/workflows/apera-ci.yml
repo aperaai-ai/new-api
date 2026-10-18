@@ -33,7 +33,7 @@ jobs:
             (cd "web/$theme" && bun install --frozen-lockfile && bun run build)
           done
       - run: go test ./...
-      - run: go test -race ./pkg/asyncprovider ./model ./service
+      - run: go test -race ./pkg/asyncprovider ./pkg/modelqueue ./model ./service
   infrastructure:
     runs-on: ubuntu-latest
     defaults:

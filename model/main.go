@@ -256,6 +256,11 @@ func migrateDB() error {
 	}
 
 	err := DB.AutoMigrate(
+		&QueueHoldAudit{},
+		&QueueHold{},
+		&QueueExecution{},
+		&QueueOutbox{},
+		&AsyncResultEvent{},
 		&AsyncJob{},
 		&AsyncLedger{},
 		&AsyncAccount{},
@@ -309,6 +314,11 @@ func migrateDBFast() error {
 		model interface{}
 		name  string
 	}{
+		{&QueueHoldAudit{}, "QueueHoldAudit"},
+		{&QueueHold{}, "QueueHold"},
+		{&QueueExecution{}, "QueueExecution"},
+		{&QueueOutbox{}, "QueueOutbox"},
+		{&AsyncResultEvent{}, "AsyncResultEvent"},
 		{&AsyncJob{}, "AsyncJob"},
 		{&AsyncLedger{}, "AsyncLedger"},
 		{&AsyncAccount{}, "AsyncAccount"},

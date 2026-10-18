@@ -1,6 +1,6 @@
-# Apera AWS 部署与异步任务计划
+# Apera AWS 部署与模型执行队列
 
-本部署沿用 new-api / QuantumNous 的现有网关、账户与控制台，新增独立异步任务执行层。**模板已提供，尚未在目标 AWS 账户创建资源或完成真实 Tripo 联调。**
+本部署沿用 new-api / QuantumNous 的现有网关、账户与控制台，新增独立模型执行层与全量 SQS 派发。**模板已提供，尚未在目标 AWS 账户创建资源或完成真实 Tripo 联调。**
 
 ## 目标架构
 
@@ -17,13 +17,14 @@
 
 ## 仓库布局与启动职责
 
-- 原 main.go：API + 控制台 + 同步/流式 LLM 代理；AWS 设置 NODE_TYPE=slave，避免每个实例启动原有 master 专用维护任务。
-- cmd/apera-worker：独立 HTTP 健康端口3000 + 异步任务调度；不提供用户 API，不对公网开放。
+- 原 main.go：API + 控制台 + 协议转换、计费和结果转发；模型 HTTP 请求经 SQS 交给 Worker；AWS 设置 NODE_TYPE=slave，避免每个实例启动原有 master 专用维护任务。
+- cmd/apera-worker：独立 HTTP 健康端口3000 + SQS 消费/模型 HTTP 执行 + Tripo 异步调度；不提供用户 API，不对公网开放。
 - cmd/apera-migrate：一次性运行现有及新增表迁移；使用 RDS 管理账户，PostgreSQL advisory lock 串行化发布迁移；创建受限 apera_app 运行账户；首次用 Secrets Manager 随机密码建立 root 管理员，初始余额为0。不会覆盖已有管理员密码。
-- 两个运行服务使用 apera_app，不持有 RDS 管理密码。schema 权限升级仅由迁移任务执行。
+- API 使用 apera_app；Worker 使用独立凭证的 apera_worker，无钱包/Token/账本写权限。schema 权限升级仅由迁移任务执行。
+- CDK 新建加密执行 SQS + DLQ、私有 S3，注入运行参数与按服务区分的 IAM 权限；队列、流式返回及财务边界详见 [SQS 方案](sqs-model-gateway.md)。
 - /health/ready 检查数据库和 Redis；Worker 还检查执行循环心跳。
 - API 正常处理 SIGTERM，最多等待110秒让在途请求结束。流式连接超过窗口仍可能中断，客户端需处理断线。
-- 暂不支持旧 Midjourney/视频后台任务：它们原来的 master 专用轮询未搬到新 Worker。新增异步供应商走新执行层；已有同步 LLM 路径继续由 API 转发。
+- 暂不支持旧 Midjourney/视频后台任务：它们原来的 master 专用轮询未搬到新 Worker。新增异步供应商走新执行层；普通/流式 LLM 的供应商 HTTP 由 Worker 执行；旧异步提交在队列模式下返回501。详见 [SQS 方案与限制](sqs-model-gateway.md)。
 
 ## 第一次部署
 
@@ -54,7 +55,7 @@
      --parameters ApiDomain=api.example.com
    ```
 
-   此时 RDS、Redis、NAT、ALB 已经计费。**bootstrap=true 只能用于新环境，绝不能对运行中的生产环境重复执行。**
+   此时 RDS、Redis、NAT、ALB 及新建 SQS/S3 已进入计费生命周期。**bootstrap=true 只能用于新环境，绝不能对运行中的生产环境重复执行。**
 
 4. 回到仓库根目录。使用 Stack 输出的 apiRepositoryUri / workerRepositoryUri，登录 ECR，分别构建推送同一个 Git SHA 标签。ECR 标签不可变；不要使用 latest。
 5. 用新 API 镜像执行迁移，脚本通过 API Capacity Provider 临时调度一次性任务：
@@ -68,7 +69,7 @@
 8. ProviderSecretArn 默认 enabled=false。设置下面的供应商配置，再滚动重启 API 和 Worker。Secrets Manager 更新不会自动刷新已运行容器的环境变量。
 9. 验证登录、测试账户余额、创建/查询任务、幂等重放、故障恢复、退款及 SNS 通知。真实测试会产生供应商费用，按已批准的测试预算进行。
 
-常规发布使用 .github/workflows/apera-deploy.yml，手动触发，限制 main 分支，production Environment 可设置审批。需要配置 GitHub OIDC 部署角色及 Environment variables：
+已有环境升级需先 prepare.py 更新资源/权限并固定正在运行的 task definition，迁移后再 rollout；不要跳过准备步骤。常规发布使用 .github/workflows/apera-deploy.yml，手动触发，限制 main 分支，production Environment 可设置审批。需要配置 GitHub OIDC 部署角色及 Environment variables：
 
 - APERA_DEPLOY_ROLE_ARN（信任限制到此仓库的 production Environment）
 - APERA_AWS_REGION

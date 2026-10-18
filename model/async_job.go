@@ -29,6 +29,7 @@ var ErrAsyncCapacity = errors.New("task queue capacity reached")
 // AsyncJob is separate from legacy video tasks: query failures must never trigger a refund.
 // Monetary values are integral platform quota units, snapshotted at acceptance.
 type AsyncJob struct {
+	ExecutionDone   bool   `json:"-"`
 	ID              string `gorm:"type:varchar(64);primaryKey" json:"id"`
 	IdempotencyHash string `gorm:"type:varchar(64);uniqueIndex" json:"-"`
 	RequestHash     string `gorm:"type:varchar(64)" json:"-"`
@@ -74,7 +75,7 @@ type AsyncAccount struct {
 }
 
 func MigrateAsyncJobs() error {
-	return AsyncDB(context.Background()).AutoMigrate(&AsyncJob{}, &AsyncLedger{}, &AsyncAccount{}, &AsyncAudit{})
+	return AsyncDB(context.Background()).AutoMigrate(&AsyncJob{}, &AsyncLedger{}, &AsyncAccount{}, &AsyncAudit{}, &AsyncResultEvent{})
 }
 func AsyncFindIdempotency(hash, requestHash string) (*AsyncJob, error) {
 	var j AsyncJob
@@ -216,7 +217,7 @@ func ReleaseAsyncAccount(id, owner string) error {
 func TransitionAsync(j *AsyncJob, values map[string]any) error {
 	values["version"] = gorm.Expr("version + 1")
 	values["updated_at"] = time.Now().Unix()
-	r := AsyncDB(context.Background()).Model(&AsyncJob{}).Where("id = ? AND version = ? AND billing = ?", j.ID, j.Version, "held").Updates(values)
+	r := AsyncDB(context.Background()).Model(&AsyncJob{}).Where("id = ? AND version = ? AND billing = ? AND execution_done = ?", j.ID, j.Version, "held", false).Updates(values)
 	if r.Error != nil {
 		return r.Error
 	}
@@ -267,6 +268,9 @@ func FinishAsync(j *AsyncJob, success bool, code, output, credits string, audit 
 			if e := tx.Create(&Log{UserId: j.UserID, TokenId: j.TokenID, CreatedAt: now, Type: LogTypeRefund, ModelName: j.Model, Quota: j.Quota, RequestId: j.ID, Content: "asynchronous generation hold released: " + code}).Error; e != nil {
 				return e
 			}
+		}
+		if e := tx.Model(&AsyncResultEvent{}).Where("job_id = ?", j.ID).UpdateColumn("processed", true).Error; e != nil {
+			return e
 		}
 		if len(audit) > 0 {
 			if e := tx.Create(&audit[0]).Error; e != nil {

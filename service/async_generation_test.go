@@ -14,7 +14,7 @@ func asyncSeed(t *testing.T) *model.AsyncJob {
 	t.Helper()
 	truncate(t)
 	require.NoError(t, model.MigrateAsyncJobs())
-	for _, table := range []string{"async_jobs", "async_accounts", "async_ledgers", "async_audits"} {
+	for _, table := range []string{"async_jobs", "async_accounts", "async_ledgers", "async_audits", "async_result_events"} {
 		require.NoError(t, model.DB.Exec("DELETE FROM "+table).Error)
 	}
 	seedUser(t, 501, 1000)
@@ -38,6 +38,10 @@ func TestAsyncPollingUnknownStateNeverRefunds(t *testing.T) {
 	result.Status = "success"
 	result.Output.ModelURL = "https://cdn.example.com/model.glb"
 	require.NoError(t, ApplyAsyncResult(&stored, result, time.Now().Unix()))
+	require.NoError(t, model.DB.First(&user, 501).Error)
+	require.Zero(t, user.UsedQuota) // Worker records results without touching balances.
+	require.NoError(t, model.SettleAsyncResults(context.Background()))
+	require.NoError(t, model.SettleAsyncResults(context.Background()))
 	require.NoError(t, model.DB.First(&user, 501).Error)
 	require.Equal(t, 900, user.Quota)
 	require.Equal(t, 100, user.UsedQuota)
@@ -67,6 +71,9 @@ func TestAsyncLocalQueueTimeoutRefundsEvenWithFullAccount(t *testing.T) {
 	require.True(t, won)
 	require.NoError(t, runAsyncAccount(context.Background(), job.Account, "worker", AsyncAccountConfig{MaxRunning: 1}))
 	var user model.User
+	require.NoError(t, model.DB.First(&user, 501).Error)
+	require.Equal(t, 900, user.Quota)
+	require.NoError(t, model.SettleAsyncResults(context.Background()))
 	require.NoError(t, model.DB.First(&user, 501).Error)
 	require.Equal(t, 1000, user.Quota)
 }
