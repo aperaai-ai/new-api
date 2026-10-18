@@ -154,6 +154,10 @@ func (t *Trace) notStarted() {
 }
 
 func Init(ctx context.Context) error {
+	role := os.Getenv("APERA_ROLE")
+	if (role == "api" || role == "worker") && !Enabled() {
+		return errors.New("distributed API/Worker deployment requires MODEL_QUEUE_ENABLED=true")
+	}
 	if !Enabled() {
 		return nil
 	}

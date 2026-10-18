@@ -363,3 +363,11 @@ func TestQueueMissingFinalChunkCannotReturnEarlyEOF(t *testing.T) {
 	require.Equal(t, body, string(got))
 	require.NoError(t, <-done)
 }
+
+func TestDistributedRolesCannotDisableQueue(t *testing.T) {
+	t.Setenv("MODEL_QUEUE_ENABLED", "false")
+	for _, role := range []string{"api", "worker"} {
+		t.Setenv("APERA_ROLE", role)
+		require.ErrorContains(t, Init(context.Background()), "requires MODEL_QUEUE_ENABLED=true")
+	}
+}

@@ -484,6 +484,8 @@ export class AperaStack extends Stack {
       });
       new CfnOutput(this, `${role}ServiceName`, { value: service.serviceName });
     }
+    // Queue consumers must be healthy before routing traffic to a new API revision.
+    services.api.node.addDependency(services.worker);
     for (const association of cluster.node
       .findAll()
       .filter((c) => c instanceof ecs.CfnClusterCapacityProviderAssociations)) {
