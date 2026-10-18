@@ -256,6 +256,10 @@ func migrateDB() error {
 	}
 
 	err := DB.AutoMigrate(
+		&AsyncJob{},
+		&AsyncLedger{},
+		&AsyncAccount{},
+		&AsyncAudit{},
 		&Channel{},
 		&Token{},
 		&User{},
@@ -305,6 +309,10 @@ func migrateDBFast() error {
 		model interface{}
 		name  string
 	}{
+		{&AsyncJob{}, "AsyncJob"},
+		{&AsyncLedger{}, "AsyncLedger"},
+		{&AsyncAccount{}, "AsyncAccount"},
+		{&AsyncAudit{}, "AsyncAudit"},
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},

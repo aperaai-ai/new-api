@@ -1,0 +1,4 @@
+{
+  "app": "node --import tsx bin/apera.ts",
+  "context": { "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true }
+}

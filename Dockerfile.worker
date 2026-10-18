@@ -1,0 +1,17 @@
+FROM golang:1.26.1-alpine AS build
+WORKDIR /build
+ENV CGO_ENABLED=0
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -trimpath -o /apera-worker ./cmd/apera-worker && go build -trimpath -o /apera-healthcheck ./cmd/apera-healthcheck
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
+COPY --from=build /apera-worker /apera-worker
+COPY --from=build /apera-healthcheck /apera-healthcheck
+COPY deploy/certs/rds-ca.pem /etc/ssl/certs/rds-ca.pem
+COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
+USER 65532:65532
+ENV TMPDIR=/tmp
+EXPOSE 3000
+CMD ["/apera-worker", "--log-dir", "/tmp/logs"]

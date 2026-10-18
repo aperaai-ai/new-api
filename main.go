@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -54,6 +57,10 @@ func main() {
 	if err != nil {
 		common.FatalLog("failed to initialize resources: " + err.Error())
 		return
+	}
+
+	if err := service.LoadAsyncConfig(); err != nil {
+		log.Fatal(err)
 	}
 
 	common.SysLog("New API " + common.Version + " started")
@@ -160,6 +167,11 @@ func main() {
 
 	// Initialize HTTP server
 	server := gin.New()
+	if cidrs := os.Getenv("TRUSTED_PROXY_CIDRS"); cidrs != "" {
+		if err := server.SetTrustedProxies(strings.Split(cidrs, ",")); err != nil {
+			log.Fatal(err)
+		}
+	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -181,7 +193,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   os.Getenv("SESSION_COOKIE_SECURE") == "true",
 		SameSite: http.SameSiteStrictMode,
 	})
 	server.Use(sessions.Sessions("session", store))
@@ -204,9 +216,23 @@ func main() {
 	// Log startup success message
 	common.LogStartupSuccess(startTime, port)
 
-	err = server.Run(":" + port)
-	if err != nil {
+	httpServer := &http.Server{Addr: ":" + port, Handler: server, ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 110*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdown)
+	}()
+	err = httpServer.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
 		common.FatalLog("failed to start HTTP server: " + err.Error())
+	}
+	if err == http.ErrServerClosed {
+		<-drained
 	}
 }
 
@@ -267,6 +293,9 @@ func InitResources() error {
 
 	// 加载环境变量
 	common.InitEnv()
+	if err := common.ConfigureAperaConnections(); err != nil {
+		return err
+	}
 
 	logger.SetupLogger()
 
