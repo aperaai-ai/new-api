@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/modelqueue"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/router"
@@ -59,10 +60,49 @@ func main() {
 		return
 	}
 
+	if err := modelqueue.Init(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+	queueCtx, queueStop := context.WithCancel(context.Background())
+	defer queueStop()
+	if modelqueue.Enabled() {
+		go modelqueue.Default.RunPublisher(queueCtx)
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-queueCtx.Done():
+					return
+				case <-ticker.C:
+					if model.RecoverQueueHolds(queueCtx) != nil {
+						common.SysError("model hold recovery failed")
+					}
+				}
+			}
+		}()
+	}
 	if err := service.LoadAsyncConfig(); err != nil {
 		log.Fatal(err)
 	}
 
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-queueCtx.Done():
+				return
+			case <-ticker.C:
+				if model.SettleAsyncResults(queueCtx) != nil {
+					common.SysError("async result settlement failed")
+				}
+				if model.FlushAsyncCaches() != nil {
+					common.SysError("async cache invalidation failed")
+				}
+			}
+		}
+	}()
 	common.SysLog("New API " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)

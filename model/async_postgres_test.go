@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -118,6 +119,50 @@ func TestAsyncPostgresConcurrency(t *testing.T) {
 	wg.Wait()
 	require.Empty(t, errs)
 	require.Equal(t, 20, created)
+	require.NoError(t, DB.First(&user, user.Id).Error)
+	require.Equal(t, 980, user.Quota)
+	// SQS duplicate delivery is fenced in SQL across real PostgreSQL connections.
+	execution := &QueueExecution{ID: "exec-postgres", Kind: "http", InputKey: "encrypted", Deadline: time.Now().Unix() + 300}
+	require.NoError(t, CreateQueueExecution(context.Background(), execution))
+	successes = 0
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			won, e := ClaimQueueExecution(context.Background(), execution.ID, fmt.Sprintf("worker-%d", i))
+			mu.Lock()
+			defer mu.Unlock()
+			if e != nil {
+				errs = append(errs, e)
+			}
+			if won {
+				successes++
+			}
+		}(i)
+	}
+	wg.Wait()
+	require.Empty(t, errs)
+	require.Equal(t, 1, successes)
+	hold := &QueueHold{ID: "hold-postgres", UserID: user.Id, TokenID: token.Id, Reserved: 100}
+	require.NoError(t, CreateQueueHold(context.Background(), hold))
+	successes = 0
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e := AdjustQueueHold(context.Background(), hold.ID, 0, "released")
+			mu.Lock()
+			defer mu.Unlock()
+			if e != nil {
+				errs = append(errs, e)
+			} else {
+				successes++
+			}
+		}()
+	}
+	wg.Wait()
+	require.Empty(t, errs)
+	require.Equal(t, 8, successes) // idempotent callers all see the same release
 	require.NoError(t, DB.First(&user, user.Id).Error)
 	require.Equal(t, 980, user.Quota)
 

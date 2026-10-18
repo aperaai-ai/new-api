@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/QuantumNous/new-api/service"
 	"io"
 	"net/url"
 	"strings"
@@ -201,6 +202,9 @@ func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId s
 }
 
 func xunfeiMakeRequest(textRequest dto.GeneralOpenAIRequest, domain, authUrl, appId string) (chan XunfeiChatResponse, chan bool, error) {
+	if service.ModelQueueEnabled() {
+		return nil, nil, fmt.Errorf("Xunfei WebSocket is unsupported with model queue")
+	}
 	d := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 	}

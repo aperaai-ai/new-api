@@ -92,7 +92,7 @@ func LoadAsyncConfig() error {
 func AsyncHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 func NewAsyncProvider(provider, key string) asyncprovider.Provider {
 	if provider == "tripo" {
-		return asyncprovider.Tripo{Key: key, HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		return asyncprovider.Tripo{Key: key, HTTP: asyncProviderHTTPClient()}
 	}
 	return nil
 }
@@ -153,9 +153,6 @@ func AsyncWorkerStep(ctx context.Context) error {
 	if !AsyncSettings.Enabled {
 		return nil
 	}
-	if e := model.FlushAsyncCaches(); e != nil {
-		return e
-	}
 	names := make([]string, 0, len(AsyncSettings.Accounts))
 	for name := range AsyncSettings.Accounts {
 		names = append(names, name)
@@ -208,7 +205,7 @@ func runAsyncAccount(ctx context.Context, name, owner string, a AsyncAccountConf
 	}
 	// Poll one credential-compatible batch, independently of new submissions.
 	var due []model.AsyncJob
-	if e := model.AsyncDB(ctx).Where("account = ? AND billing = ? AND upstream_id <> ? AND next_attempt <= ?", name, "held", "", now).Order("next_attempt ASC").Limit(100).Find(&due).Error; e != nil {
+	if e := model.AsyncDB(ctx).Where("account = ? AND billing = ? AND execution_done = ? AND upstream_id <> ? AND next_attempt <= ?", name, "held", false, "", now).Order("next_attempt ASC").Limit(100).Find(&due).Error; e != nil {
 		return e
 	}
 	if len(due) > 0 {
@@ -256,12 +253,12 @@ func runAsyncAccount(ctx context.Context, name, owner string, a AsyncAccountConf
 		return e
 	}
 	for i := range expired {
-		if e := model.FinishAsync(&expired[i], false, "queue_expired", "", ""); e != nil {
+		if e := model.RecordAsyncResult(&expired[i], false, "queue_expired", "", ""); e != nil {
 			return e
 		}
 	}
 	var active int64
-	if e := model.AsyncDB(ctx).Model(&model.AsyncJob{}).Where("account = ? AND billing = ? AND status <> ?", name, "held", model.AsyncQueued).Count(&active).Error; e != nil {
+	if e := model.AsyncDB(ctx).Model(&model.AsyncJob{}).Where("account = ? AND billing = ? AND execution_done = ? AND status <> ?", name, "held", false, model.AsyncQueued).Count(&active).Error; e != nil {
 		return e
 	}
 	if active >= int64(a.MaxRunning) {
@@ -277,7 +274,7 @@ func runAsyncAccount(ctx context.Context, name, owner string, a AsyncAccountConf
 	}
 	// Only local, never-submitted work has an automatic queue deadline.
 	if now-j.CreatedAt > 1800 {
-		return model.FinishAsync(&j, false, "queue_expired", "", "")
+		return model.RecordAsyncResult(&j, false, "queue_expired", "", "")
 	}
 	ok, e := AsyncRate(ctx, "submit:"+name, a.SubmitRPM)
 	if e != nil || !ok {
@@ -301,7 +298,7 @@ func runAsyncAccount(ctx context.Context, name, owner string, a AsyncAccountConf
 		}
 		if result.Rejected {
 			common.SysError("async provider rejected request: " + j.Account)
-			return model.FinishAsync(&j, false, "provider_rejected", "", "")
+			return model.RecordAsyncResult(&j, false, "provider_rejected", "", "")
 		}
 		logAsyncEvent("async_submission_unknown", j, "")
 		return model.TransitionAsync(&j, map[string]any{"status": model.AsyncReconciling, "error_code": "submission_unknown"})
@@ -323,9 +320,9 @@ func ApplyAsyncResult(j *model.AsyncJob, r asyncprovider.Result, now int64) erro
 		if e != nil {
 			return e
 		}
-		return model.FinishAsync(j, true, "", string(out), string(r.Credits))
+		return model.RecordAsyncResult(j, true, "", string(out), string(r.Credits))
 	case "failed", "cancelled":
-		return model.FinishAsync(j, false, "provider_"+r.Status, "", string(r.Credits))
+		return model.RecordAsyncResult(j, false, "provider_"+r.Status, "", string(r.Credits))
 	case "queued", "running":
 		progress := r.Progress
 		if progress < 0 {
@@ -395,4 +392,15 @@ func logAsyncEvent(event string, j model.AsyncJob, upstreamID string) {
 	if e == nil {
 		fmt.Println(string(body))
 	}
+}
+
+func asyncProviderHTTPClient() *http.Client {
+	base := GetHttpClient()
+	if base == nil {
+		base = &http.Client{}
+	}
+	c := *base
+	c.Timeout = 45 * time.Second
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &c
 }

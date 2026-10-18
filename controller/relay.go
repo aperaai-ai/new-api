@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/modelqueue"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -67,6 +68,16 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
+	var queueTrace *modelqueue.Trace
+	if modelqueue.Enabled() {
+		ctx, trace := modelqueue.WithTrace(c.Request.Context())
+		queueTrace = trace
+		c.Request = c.Request.WithContext(ctx)
+		if relayFormat == types.RelayFormatOpenAIRealtime {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"message": "Realtime WebSocket is not supported by model queue"}})
+			return
+		}
+	}
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
@@ -230,6 +241,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		if queueTrace != nil && queueTrace.Accepted() {
+			break
+		}
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
@@ -401,6 +415,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 }
 
 func RelayMidjourney(c *gin.Context) {
+	if service.ModelQueueEnabled() {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "legacy Midjourney tasks require migration to the durable worker task API"})
+		return
+	}
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatMjProxy, nil, nil)
 
 	if err != nil {
@@ -483,6 +502,11 @@ func RelayTaskFetch(c *gin.Context) {
 }
 
 func RelayTask(c *gin.Context) {
+	if service.ModelQueueEnabled() {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "legacy video/music tasks require migration to the durable worker task API"})
+		return
+	}
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, &dto.TaskError{

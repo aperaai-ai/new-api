@@ -25,11 +25,11 @@ func main() {
 	if e := model.InitDB(); e != nil {
 		log.Fatal("database connection failed")
 	}
-	defer model.CloseDB()
 	db, e := model.DB.DB()
 	if e != nil {
 		log.Fatal("database unavailable")
 	}
+	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	conn, e := db.Conn(ctx)
@@ -52,7 +52,7 @@ func main() {
 		}
 		var exists bool
 		if e = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='apera_app')").Scan(&exists); e != nil {
-			log.Fatal("role lookup failed")
+			log.Fatalf("role lookup failed: %v", e)
 		}
 		verb := "CREATE"
 		if exists {
@@ -73,6 +73,36 @@ func main() {
 		} {
 			if _, e = conn.ExecContext(ctx, sql); e != nil {
 				log.Fatal("application role grant failed")
+			}
+		}
+	}
+
+	if password := os.Getenv("WORKER_DB_PASSWORD"); password != "" {
+		if !common.UsingPostgreSQL {
+			log.Fatal("worker-role provisioning requires PostgreSQL")
+		}
+		var exists bool
+		if e = conn.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='apera_worker')").Scan(&exists); e != nil {
+			log.Fatalf("worker role lookup failed: %v", e)
+		}
+		verb := "CREATE"
+		if exists {
+			verb = "ALTER"
+		}
+		if _, e = conn.ExecContext(ctx, fmt.Sprintf("%s ROLE apera_worker LOGIN PASSWORD '%s'", verb, strings.ReplaceAll(password, "'", "''"))); e != nil {
+			log.Fatal("worker role provisioning failed")
+		}
+		for _, sql := range []string{
+			"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM apera_worker",
+			"GRANT CONNECT ON DATABASE apera TO apera_worker",
+			"GRANT USAGE ON SCHEMA public TO apera_worker",
+			"GRANT SELECT,INSERT,UPDATE,DELETE ON queue_executions,queue_outboxes,async_accounts TO apera_worker",
+			"GRANT SELECT ON async_jobs TO apera_worker",
+			"GRANT UPDATE(status,upstream_id,error_code,progress,output,credits,next_attempt,submitted_at,updated_at,version,attempts,execution_done) ON async_jobs TO apera_worker",
+			"GRANT INSERT ON async_result_events TO apera_worker",
+		} {
+			if _, e = conn.ExecContext(ctx, sql); e != nil {
+				log.Fatal("worker role grant failed")
 			}
 		}
 	}

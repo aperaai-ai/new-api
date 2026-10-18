@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/service"
 	"io"
 	"net/http"
 	"strings"
@@ -209,6 +210,9 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	header := http.Header{}
 	header.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
 
+	if service.ModelQueueEnabled() {
+		return nil, types.NewError(fmt.Errorf("VolcEngine WebSocket TTS is unsupported with model queue"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
+	}
 	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
 	if dialErr != nil {
 		if resp != nil {

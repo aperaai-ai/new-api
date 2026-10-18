@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/modelqueue"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -36,11 +37,19 @@ func main() {
 	if e := common.InitRedisClient(); e != nil {
 		log.Fatal("worker Redis initialization failed")
 	}
+	service.InitHttpClient()
+	if e := modelqueue.Init(context.Background()); e != nil {
+		log.Fatal(e)
+	}
 	if e := service.LoadAsyncConfig(); e != nil {
 		log.Fatal(e)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	if modelqueue.Enabled() {
+		go modelqueue.Default.RunPublisher(ctx)
+		go modelqueue.Default.RunWorker(ctx)
+	}
 	var progress atomic.Int64
 	progress.Store(time.Now().Unix())
 	mux := http.NewServeMux()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/modelqueue"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"golang.org/x/net/proxy"
@@ -59,6 +60,9 @@ func InitHttpClient() {
 }
 
 func GetHttpClient() *http.Client {
+	if modelqueue.Enabled() {
+		return &http.Client{Transport: modelqueue.Transport{Runtime: modelqueue.Default}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
 	return httpClient
 }
 
@@ -84,6 +88,12 @@ func ResetProxyClientCache() {
 
 // NewProxyHttpClient 创建支持代理的 HTTP 客户端
 func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
+	if modelqueue.Enabled() {
+		if proxyURL != "" {
+			return nil, fmt.Errorf("channel proxies are unsupported with model queue")
+		}
+		return GetHttpClient(), nil
+	}
 	if proxyURL == "" {
 		if client := GetHttpClient(); client != nil {
 			return client, nil
@@ -167,3 +177,8 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 		return nil, fmt.Errorf("unsupported proxy scheme: %s, must be http, https, socks5 or socks5h", parsedURL.Scheme)
 	}
 }
+
+func ModelQueueEnabled() bool { return modelqueue.Enabled() }
+
+// GetBusinessHttpClient is for outbound account notifications, never model calls.
+func GetBusinessHttpClient() *http.Client { return httpClient }
