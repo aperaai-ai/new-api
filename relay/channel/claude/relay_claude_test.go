@@ -380,3 +380,35 @@ func TestRequestOpenAI2ClaudeMessage_ConvertsTextFileContentToText(t *testing.T)
 	require.NotNil(t, content[0].Text)
 	require.Equal(t, "alpha\nbeta", *content[0].Text)
 }
+
+func TestClaudeFileContentFormats(t *testing.T) {
+	cases := []struct {
+		name, filename, data, kind string
+		wantError                  bool
+	}{
+		{"uppercase PDF", "SPEC.PDF", "JVBERi0xLjQK", "document", false},
+		{"text data URI", "notes.txt", "data:text/plain;base64,aGVsbG8=", "text", false},
+		{"image file", "photo.webp", "UklGRg==", "image", false},
+		{"unsupported audio", "recording.mp3", "not-base64", "", false},
+		{"invalid UTF8 text", "notes.txt", "/w==", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			block, err := convertClaudeMedia(nil, dto.MediaContent{Type: dto.ContentTypeFile, File: &dto.MessageFile{FileName: tc.filename, FileData: tc.data}})
+			if tc.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			if tc.kind == "" {
+				require.Nil(t, block)
+				return
+			}
+			require.NotNil(t, block)
+			require.Equal(t, tc.kind, block.Type)
+			if tc.kind == "text" {
+				require.Equal(t, "hello", *block.Text)
+			}
+		})
+	}
+}
